@@ -4,33 +4,41 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
+	"github.com/cuotos/glastoscraper"
+	"github.com/gregjones/httpcache"
+	"github.com/gregjones/httpcache/diskcache"
+	"github.com/meehow/securebytes"
 	"github.com/zmb3/spotify/v2"
 	spotifyauth "github.com/zmb3/spotify/v2/auth"
+	"golang.org/x/exp/slices"
 	"golang.org/x/oauth2"
-)
-
-const (
-	redirectURI = "http://localhost:3000/oauth2/callback"
 )
 
 var (
 	ctx  = context.Background()
-	auth = spotifyauth.New(
-		spotifyauth.WithRedirectURL(redirectURI),
-		spotifyauth.WithScopes(
-			spotifyauth.ScopePlaylistReadPrivate,
-			spotifyauth.ScopeUserReadEmail,
-		),
-	)
+	auth *spotifyauth.Authenticator
+	sb   = securebytes.New([]byte(mustGetEnvVar("COOKIE_SECRET")), securebytes.JSONSerializer{})
 )
 
+func mustGetEnvVar(v string) string {
+	found := os.Getenv(v)
+	if found != "" {
+		return found
+	}
+
+	log.Fatalf("missing required env var %s", v)
+	return ""
+}
+
 func main() {
+
 	log.SetFlags(log.Lshortfile)
 	if err := run(); err != nil {
 		log.Fatal(err)
@@ -38,6 +46,15 @@ func main() {
 }
 
 func run() error {
+	hostname := mustGetEnvVar("HOSTNAME")
+	auth = spotifyauth.New(
+		spotifyauth.WithClientID(mustGetEnvVar("SPOTIFY_CLIENT_ID")),
+		spotifyauth.WithClientSecret(mustGetEnvVar("SPOTIFY_CLIENT_SECRET")),
+		spotifyauth.WithRedirectURL(fmt.Sprintf("%s/oauth2/callback", hostname)),
+		spotifyauth.WithScopes(
+			spotifyauth.ScopeUserLibraryRead,
+		),
+	)
 	mux := http.DefaultServeMux
 
 	mux.HandleFunc("/oauth2/callback", completeAuthHandler)
@@ -46,33 +63,53 @@ func run() error {
 		clearCookie(w, r, "session_token")
 		http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 	})
+	mux.HandleFunc("/find", findArtistsHandler)
 	mux.HandleFunc("/", indexHandler)
 
 	return http.ListenAndServe("127.0.0.1:3000", mux)
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
+	w.Write([]byte(`
+		<html>
+			<body>
+				<span>because this is running in dev mode, I need to whitelist Emails linked with Spotify before it will work, let me know your email before clicking login</span><br>
+				<ul>
+					<li><a href="/oauth2/login">login</a></li>
+					<li><a href="/oauth2/clear">clear session cookie</a></li>
+					<li><a href="/find">Find Artists (click once)</a></li>
+				</ul>
+			</body>
+		</html>
+	`))
+}
+
+func findArtistsHandler(w http.ResponseWriter, r *http.Request) {
 	c, err := r.Cookie("session_token")
 	if err != nil {
 		if err == http.ErrNoCookie {
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte(`<html><body><a href="/oauth2/login">login</a></body></html>`))
+			http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
 			return
 		}
 		// TODO: handle cookie found, but err
 	}
 
-	// cookie was present
-	decodedCookie, _ := base64.URLEncoding.DecodeString(c.Value)
-
 	token := &oauth2.Token{}
-	json.Unmarshal(decodedCookie, token)
+	err = sb.DecryptBase64(c.Value, token)
+	if err != nil {
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		log.Println(err)
+		return
+	}
 
-	client := spotify.New(auth.Client(ctx, token))
+	cache := diskcache.New("/Users/danpotepa/repos/github/cuotos/glastodiscover/cache")
+	customClient := &http.Client{
+		Transport: httpcache.NewTransport(cache),
+	}
+
+	customCtx := context.WithValue(ctx, oauth2.HTTPClient, customClient)
+
+	client := spotify.New(auth.Client(customCtx, token))
 
 	user, err := client.CurrentUser(ctx)
 	if err != nil {
@@ -81,24 +118,52 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Println(user.DisplayName, r.URL.String())
 
-	output := ""
+	fmt.Printf("getting spotify artists for %s\n", user.DisplayName)
+	spotifyLikedArtists, err := getSpotifyLikedArtist(client)
+	if err != nil {
+		fmt.Println(err)
+	}
 
-	allPlaylists, err := client.CurrentUsersPlaylists(ctx)
+	glastoScraper, _ := glastoscraper.New(2023)
+	glastoArtists, _ := glastoScraper.GetAllArtists()
+
+	matchedArtists := []string{}
+
+	for _, likedArtist := range spotifyLikedArtists {
+		for _, glastoArtist := range glastoArtists {
+			if strings.EqualFold(likedArtist, glastoArtist) {
+				log.Printf("%s found %s\n", user.DisplayName, likedArtist)
+				matchedArtists = append(matchedArtists, likedArtist)
+			}
+		}
+	}
+
+	slices.Sort(matchedArtists)
+	output := ""
+	for _, a := range matchedArtists {
+		output += fmt.Sprintf("%s\n", a)
+	}
+	w.Write([]byte(output))
+}
+
+func getSpotifyLikedArtist(c *spotify.Client) ([]string, error) {
+
+	uniqueLikedArtistsMap := make(map[string]any)
+
+	likedTracks, err := c.CurrentUsersTracks(ctx, spotify.Limit(50))
 	if err != nil {
 		log.Println(err)
 	}
 
 	for page := 1; ; page++ {
 
-		for _, p := range allPlaylists.Playlists {
-			isPublic := "private"
-			if p.IsPublic {
-				isPublic = "public "
-			}
-			output += fmt.Sprintf("%s - %s\n", isPublic, p.Name)
+		log.Printf("getting page %d", page)
+
+		for _, t := range likedTracks.Tracks {
+			uniqueLikedArtistsMap[t.Artists[0].Name] = struct{}{}
 		}
 
-		err = client.NextPage(ctx, allPlaylists)
+		err := c.NextPage(ctx, likedTracks)
 		if err == spotify.ErrNoMorePages {
 			break
 		}
@@ -106,7 +171,16 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 			log.Println(err)
 		}
 	}
-	w.Write([]byte(output))
+
+	uniqueArtists := make([]string, len(uniqueLikedArtistsMap))
+
+	i := 0
+	for a := range uniqueLikedArtistsMap {
+		uniqueArtists[i] = a
+		i++
+	}
+
+	return uniqueArtists, nil
 }
 
 func loginAuthHandler(w http.ResponseWriter, r *http.Request) {
@@ -133,10 +207,15 @@ func generateStateOauthCookie(w http.ResponseWriter) string {
 func completeAuthHandler(w http.ResponseWriter, r *http.Request) {
 
 	// read state from cookie
-	oauthState, _ := r.Cookie("oauthstate")
-	token, err := auth.Token(r.Context(), oauthState.Value, r)
+	oauthState, err := r.Cookie("oauthstate")
 	if err != nil {
 		http.Error(w, "Couldn't get token", http.StatusNotFound)
+		return
+	}
+	token, err := auth.Token(r.Context(), oauthState.Value, r)
+	if err != nil {
+		http.Error(w, "failed to parse token", http.StatusInternalServerError)
+		fmt.Println(err)
 		return
 	}
 
@@ -145,21 +224,26 @@ func completeAuthHandler(w http.ResponseWriter, r *http.Request) {
 		log.Fatalf("state mismatch: %s != %s\n", st, oauthState.Value)
 	}
 
-	tok, err := json.Marshal(token)
+	fmt.Printf("%+v", token)
+
+	b64, err := sb.EncryptToBase64(token)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		log.Fatalf("failed to marshal token: %s", err)
+		log.Println(err)
 	}
 
 	tokenCookie := http.Cookie{
 		Name:  "session_token",
-		Value: base64.URLEncoding.EncodeToString(tok),
+		Value: b64,
 		Path:  "/",
 	}
 
 	http.SetCookie(w, &tokenCookie)
 
-	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+	w.Write([]byte(`
+		<html><body>
+		<span>login successful<span><br>
+		<a href="/">home</a></body></home>
+	`))
 }
 
 func clearCookie(w http.ResponseWriter, r *http.Request, cookieName string) {

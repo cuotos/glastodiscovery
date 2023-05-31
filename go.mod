@@ -3,13 +3,17 @@ module github.com/cuotos/glastodiscover
 go 1.20
 
 require (
-	github.com/cuotos/glastoscraper v0.0.0-20230530165132-ef4295c5c110
+	github.com/cuotos/glastoscraper v0.0.0-20230531105455-b5cdbf0c14a9
+	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79
+	github.com/meehow/securebytes v0.3.1
+	github.com/zmb3/spotify/v2 v2.3.1
 	golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1
+	golang.org/x/oauth2 v0.8.0
 )
 
+// replace github.com/cuotos/glastoscraper => /Users/danpotepa/repos/github/cuotos/glastoscraper
+
 require (
-	cloud.google.com/go/compute v1.14.0 // indirect
-	cloud.google.com/go/compute/metadata v0.2.3 // indirect
 	github.com/PuerkitoBio/goquery v1.8.1 // indirect
 	github.com/andybalholm/cascadia v1.3.2 // indirect
 	github.com/antchfx/htmlquery v1.3.0 // indirect
@@ -19,12 +23,13 @@ require (
 	github.com/gocolly/colly v1.2.0 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
+	github.com/google/btree v1.1.2 // indirect
+	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/kennygrant/sanitize v1.2.4 // indirect
+	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d // indirect
 	github.com/temoto/robotstxt v1.1.2 // indirect
-	github.com/zmb3/spotify/v2 v2.3.1 // indirect
 	golang.org/x/net v0.10.0 // indirect
-	golang.org/x/oauth2 v0.8.0 // indirect
 	golang.org/x/text v0.9.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/protobuf v1.30.0 // indirect
