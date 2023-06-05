@@ -12,8 +12,6 @@ import (
 	"time"
 
 	"github.com/cuotos/glastoscraper"
-	"github.com/gregjones/httpcache"
-	"github.com/gregjones/httpcache/diskcache"
 	"github.com/meehow/securebytes"
 	"github.com/zmb3/spotify/v2"
 	spotifyauth "github.com/zmb3/spotify/v2/auth"
@@ -22,6 +20,9 @@ import (
 )
 
 var (
+	version = "unset"
+	commit  = "unset"
+
 	ctx  = context.Background()
 	auth *spotifyauth.Authenticator
 	sb   = securebytes.New([]byte(mustGetEnvVar("COOKIE_SECRET")), securebytes.JSONSerializer{})
@@ -46,17 +47,20 @@ func main() {
 }
 
 func run() error {
-	hostname := mustGetEnvVar("HOSTNAME")
+	callbackURI := mustGetEnvVar("CALLBACK_URI")
 	auth = spotifyauth.New(
 		spotifyauth.WithClientID(mustGetEnvVar("SPOTIFY_CLIENT_ID")),
 		spotifyauth.WithClientSecret(mustGetEnvVar("SPOTIFY_CLIENT_SECRET")),
-		spotifyauth.WithRedirectURL(fmt.Sprintf("%s/oauth2/callback", hostname)),
+		spotifyauth.WithRedirectURL(callbackURI),
 		spotifyauth.WithScopes(
 			spotifyauth.ScopeUserLibraryRead,
 		),
 	)
 	mux := http.DefaultServeMux
 
+	mux.HandleFunc("/versionz", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(fmt.Sprintf("%s-%s", version, commit)))
+	})
 	mux.HandleFunc("/oauth2/callback", completeAuthHandler)
 	mux.HandleFunc("/oauth2/login", loginAuthHandler)
 	mux.HandleFunc("/oauth2/clear", func(w http.ResponseWriter, r *http.Request) {
@@ -66,7 +70,7 @@ func run() error {
 	mux.HandleFunc("/find", findArtistsHandler)
 	mux.HandleFunc("/", indexHandler)
 
-	return http.ListenAndServe("127.0.0.1:3000", mux)
+	return http.ListenAndServe(":8080", mux)
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
@@ -102,14 +106,7 @@ func findArtistsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cache := diskcache.New("/Users/danpotepa/repos/github/cuotos/glastodiscover/cache")
-	customClient := &http.Client{
-		Transport: httpcache.NewTransport(cache),
-	}
-
-	customCtx := context.WithValue(ctx, oauth2.HTTPClient, customClient)
-
-	client := spotify.New(auth.Client(customCtx, token))
+	client := spotify.New(auth.Client(ctx, token))
 
 	user, err := client.CurrentUser(ctx)
 	if err != nil {
