@@ -1,10 +1,9 @@
-module github.com/cuotos/glastodiscover
+module github.com/cuotos/glastodiscovery
 
 go 1.20
 
 require (
 	github.com/cuotos/glastoscraper v0.0.0-20230531105455-b5cdbf0c14a9
-	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79
 	github.com/meehow/securebytes v0.3.1
 	github.com/zmb3/spotify/v2 v2.3.1
 	golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1
@@ -23,10 +22,8 @@ require (
 	github.com/gocolly/colly v1.2.0 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
-	github.com/google/btree v1.1.2 // indirect
 	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/kennygrant/sanitize v1.2.4 // indirect
-	github.com/peterbourgon/diskv v2.0.1+incompatible // indirect
 	github.com/saintfish/chardet v0.0.0-20230101081208-5e3ef4b5456d // indirect
 	github.com/temoto/robotstxt v1.1.2 // indirect
 	golang.org/x/net v0.10.0 // indirect
